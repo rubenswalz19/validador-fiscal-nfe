@@ -14,11 +14,13 @@ Abra `index.html` no navegador ou sirva a pasta com um servidor estático local.
 - Persistência local no navegador.
 - Integração opcional com Supabase.
 
-## Configuração opcional do Supabase
+## Supabase
 
-Em `app.js`, substitua `SUPABASE_URL` e `SUPABASE_KEY` pela URL do projeto e pela chave pública anon do Supabase. Configure as permissões e políticas da tabela `notas_fiscais` antes de habilitar a integração.
+O painel está conectado ao projeto Supabase `validador-fiscal-nfe`. O acesso às notas exige uma conta; cada usuário autenticado só pode consultar e inserir os próprios registros, usando políticas de Row Level Security (RLS).
 
-O painel também funciona sem Supabase, salvando os registros localmente no navegador utilizado.
+A interface usa a chave pública `sb_publishable_`, apropriada para uso no navegador. Nunca coloque uma chave `sb_secret_` ou `service_role` no frontend ou no repositório.
+
+Novos usuários podem precisar confirmar o endereço de e-mail antes de entrar, conforme a configuração de autenticação do projeto.
 
 ## Publicar na Vercel
 

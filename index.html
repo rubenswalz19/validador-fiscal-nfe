@@ -17,10 +17,29 @@
         <h1>Auditoria <span>&amp; Compliance NF-e</span></h1>
       </div>
     </div>
-    <span class="badge"><span class="badge-dot"></span>Automacao ativa</span>
+    <div class="topbar-actions">
+      <span class="badge"><span class="badge-dot"></span>Auditoria protegida</span>
+      <button id="btnLogout" class="btn-logout" type="button" hidden>Sair</button>
+    </div>
   </header>
 
   <main class="container">
+    <section class="auth-box" id="authBox">
+      <p class="eyebrow">Acesso seguro</p>
+      <h2 id="authTitle">Entrar na sua conta</h2>
+      <p class="auth-description">Suas notas ficam privadas e vinculadas ao seu usuário.</p>
+      <form id="authForm">
+        <label for="authEmail">E-mail</label>
+        <input id="authEmail" name="email" type="email" autocomplete="email" required />
+        <label for="authPassword">Senha</label>
+        <input id="authPassword" name="password" type="password" autocomplete="current-password" minlength="6" required />
+        <button id="authSubmit" class="btn-primary" type="submit">Entrar</button>
+      </form>
+      <button id="authToggle" class="auth-toggle" type="button">Ainda nao tem conta? Criar conta</button>
+      <p id="authFeedback" class="auth-feedback" role="status" aria-live="polite"></p>
+    </section>
+
+    <div id="appContent" hidden>
     <section class="kpis" aria-label="Resumo das auditorias">
       <article class="card">
         <div class="card-icon card-icon--blue" aria-hidden="true">
@@ -112,6 +131,7 @@
         </table>
       </div>
     </section>
+    </div>
   </main>
 
   <script src="app.js"></script>

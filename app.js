@@ -1,17 +1,13 @@
-const SUPABASE_URL = 'COLE_SUA_PROJECT_URL_AQUI';
-const SUPABASE_KEY = 'COLE_SUA_CHAVE_ANON_PUBLIC_AQUI';
-const STORAGE_KEY = 'nfe-auditoria-notas';
+const SUPABASE_URL = 'https://eghisnyhovokrwjinfbv.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_GqA65T1Z_DSFDp6lVYyNWw_zFFRpTHK';
+const SESSION_KEY = 'nfe-auditoria-session';
 const SUPABASE_CONFIGURADO =
-  SUPABASE_URL.startsWith('https://') && !SUPABASE_KEY.includes('COLE_SUA');
-
-const headersSupabase = {
-  'apikey': SUPABASE_KEY,
-  'Authorization': `Bearer ${SUPABASE_KEY}`,
-  'Content-Type': 'application/json',
-  'Prefer': 'return=representation'
-};
+  SUPABASE_URL.startsWith('https://') && SUPABASE_KEY.startsWith('sb_publishable_');
 
 let notas = [];
+let session = null;
+let criandoConta = false;
+
 const tabela = document.getElementById('tabelaNotas');
 const feedback = document.getElementById('feedback');
 const feedbackText = document.getElementById('feedbackText');
@@ -19,121 +15,231 @@ const botaoSimular = document.getElementById('btnSimular');
 const xmlInput = document.getElementById('xmlInput');
 const fileName = document.getElementById('fileName');
 const dropzone = document.getElementById('dropzone');
+const authBox = document.getElementById('authBox');
+const authForm = document.getElementById('authForm');
+const authTitle = document.getElementById('authTitle');
+const authSubmit = document.getElementById('authSubmit');
+const authToggle = document.getElementById('authToggle');
+const authFeedback = document.getElementById('authFeedback');
+const appContent = document.getElementById('appContent');
+const btnLogout = document.getElementById('btnLogout');
 
 function definirFeedback(mensagem, tipo = 'normal') {
   feedbackText.textContent = mensagem;
   feedback.className = `feedback${tipo === 'normal' ? '' : ` is-${tipo}`}`;
 }
 
-function carregarNotasLocais() {
+function definirFeedbackAuth(mensagem, tipo = 'normal') {
+  authFeedback.textContent = mensagem;
+  authFeedback.className = `auth-feedback${tipo === 'normal' ? '' : ` is-${tipo}`}`;
+}
+
+async function supabaseRequest(path, { method = 'GET', body, accessToken, headers: customHeaders = {} } = {}) {
+  const headers = { apikey: SUPABASE_KEY, ...customHeaders };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${SUPABASE_URL}${path}`, {
+    method,
+    headers,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  });
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { message: text };
+    }
+  }
+
+  if (!response.ok) {
+    const error = new Error(
+      data?.msg || data?.message || data?.error_description || data?.error || 'Falha ao comunicar com o Supabase.'
+    );
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+function guardarSessao(dados) {
+  if (!dados?.access_token || !dados?.refresh_token || !dados?.user?.id) {
+    throw new Error('O Supabase nao retornou uma sessao valida.');
+  }
+  session = {
+    access_token: dados.access_token,
+    refresh_token: dados.refresh_token,
+    user: dados.user
+  };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
+
+function limparSessao() {
+  session = null;
+  notas = [];
+  localStorage.removeItem(SESSION_KEY);
+}
+
+function mostrarAplicacao() {
+  authBox.hidden = true;
+  appContent.hidden = false;
+  btnLogout.hidden = false;
+}
+
+function mostrarLogin() {
+  authBox.hidden = false;
+  appContent.hidden = true;
+  btnLogout.hidden = true;
+}
+
+function atualizarModoAuth() {
+  authTitle.textContent = criandoConta ? 'Criar sua conta' : 'Entrar na sua conta';
+  authSubmit.textContent = criandoConta ? 'Criar conta' : 'Entrar';
+  authToggle.textContent = criandoConta
+    ? 'Ja tem conta? Entrar'
+    : 'Ainda nao tem conta? Criar conta';
+  document.getElementById('authPassword').autocomplete = criandoConta ? 'new-password' : 'current-password';
+}
+
+async function renovarSessao() {
+  const novosDados = await supabaseRequest('/auth/v1/token?grant_type=refresh_token', {
+    method: 'POST',
+    body: { refresh_token: session.refresh_token }
+  });
+  guardarSessao(novosDados);
+}
+
+async function requisicaoAutenticada(path, options = {}) {
   try {
-    const salvo = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    notas = Array.isArray(salvo) ? salvo : [];
-  } catch {
-    notas = [];
+    return await supabaseRequest(path, { ...options, accessToken: session.access_token });
+  } catch (error) {
+    if (error.status !== 401 || !session?.refresh_token) throw error;
+    await renovarSessao();
+    return supabaseRequest(path, { ...options, accessToken: session.access_token });
   }
 }
 
-function salvarNotasLocais() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(notas));
+async function iniciarSessao(dados) {
+  guardarSessao(dados);
+  mostrarAplicacao();
+  await carregarNotasDoBanco();
 }
 
-// 1. Carrega notas salvas no banco ao abrir a página
-async function carregarNotasDoBanco() {
-  carregarNotasLocais();
-  atualizarTela();
-
+async function restaurarSessao() {
   if (!SUPABASE_CONFIGURADO) {
-    definirFeedback('Modo local ativo. Configure o Supabase para sincronizar.', 'normal');
+    mostrarLogin();
+    authSubmit.disabled = true;
+    authToggle.disabled = true;
+    definirFeedbackAuth('A configuracao publica do Supabase esta incompleta.', 'error');
     return;
   }
 
-  definirFeedback('Sincronizando notas com o banco de dados...', 'working');
+  let salva;
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/notas_fiscais?select=*&order=id.desc`, {
-      headers: headersSupabase
-    });
-    if (res.ok) {
-      notas = await res.json();
-      salvarNotasLocais();
-      atualizarTela();
-      definirFeedback('Banco de dados conectado.', 'success');
-    } else {
-      definirFeedback('Banco indisponivel; usando dados locais.', 'error');
+    salva = JSON.parse(localStorage.getItem(SESSION_KEY));
+  } catch {
+    localStorage.removeItem(SESSION_KEY);
+  }
+
+  if (!salva?.access_token || !salva?.refresh_token) {
+    mostrarLogin();
+    return;
+  }
+
+  session = salva;
+  try {
+    const user = await requisicaoAutenticada('/auth/v1/user');
+    session.user = user;
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    mostrarAplicacao();
+    await carregarNotasDoBanco();
+  } catch (error) {
+    if (error.status === 401) {
+      limparSessao();
+      mostrarLogin();
+      definirFeedbackAuth('Sua sessao expirou. Entre novamente.', 'error');
+      return;
     }
-  } catch {
-    definirFeedback('Sem conexao com o banco; usando dados locais.', 'error');
+    mostrarLogin();
+    definirFeedbackAuth(`Nao foi possivel validar a sessao: ${error.message}`, 'error');
   }
 }
 
-// 2. Salva nova nota auditada no PostgreSQL
-async function salvarNotaNoBanco(novaNota) {
-  notas.unshift(novaNota);
-  salvarNotasLocais();
-
-  if (!SUPABASE_CONFIGURADO) return;
-
+async function carregarNotasDoBanco() {
+  definirFeedback('Carregando suas notas...', 'working');
   try {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/notas_fiscais`, {
-    method: 'POST',
-    headers: headersSupabase,
-    body: JSON.stringify(novaNota)
-  });
-  if (res.ok) {
-    const [salva] = await res.json();
-    notas[0] = salva;
-    salvarNotasLocais();
-  }
-  } catch {
-    definirFeedback('Nota registrada localmente. Sincronizacao pendente.', 'error');
+    notas = await requisicaoAutenticada('/rest/v1/notas_fiscais?select=*&order=id.desc');
+    atualizarTela();
+    definirFeedback('Notas sincronizadas com o Supabase.', 'success');
+  } catch (error) {
+    notas = [];
+    atualizarTela();
+    definirFeedback(`Nao foi possivel carregar as notas: ${error.message}`, 'error');
   }
 }
 
-// Consulta situação cadastral real do CNPJ via BrasilAPI
+async function salvarNotaNoBanco(novaNota) {
+  const resultado = await requisicaoAutenticada('/rest/v1/notas_fiscais', {
+    method: 'POST',
+    body: { ...novaNota, user_id: session.user.id },
+    headers: { Prefer: 'return=representation' }
+  });
+  if (!Array.isArray(resultado) || !resultado[0]) {
+    throw new Error('O Supabase nao confirmou o salvamento da nota.');
+  }
+  notas.unshift(resultado[0]);
+}
+
 async function validarCNPJNaReceita(cnpjLimpo) {
   if (!/^\d{14}$/.test(cnpjLimpo)) {
     return { ativa: false, razao: 'CNPJ invalido' };
   }
   try {
-    const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjLimpo}`);
-    if (!res.ok) return { ativa: false, razao: 'CNPJ não encontrado' };
-    const dados = await res.json();
+    const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjLimpo}`);
+    if (!response.ok) return { ativa: false, razao: 'CNPJ nao encontrado' };
+    const dados = await response.json();
     return {
       ativa: dados.descricao_situacao_cadastral === 'ATIVA',
-      razao: dados.razao_social
+      razao: dados.razao_social || 'Razao social nao informada'
     };
   } catch {
-    return { ativa: false, razao: 'Erro na consulta API' };
+    return { ativa: false, razao: 'Falha na consulta de CNPJ' };
   }
 }
 
 async function processarNota({ numero, cnpj, valorNota, somaItens }) {
   botaoSimular.disabled = true;
   xmlInput.disabled = true;
-  definirFeedback('Consultando Receita Federal e registrando auditoria...', 'working');
-  const cnpjLimpo = cnpj.replace(/\D/g, '');
-  const consulta = await validarCNPJNaReceita(cnpjLimpo);
+  definirFeedback('Consultando CNPJ e registrando a auditoria...', 'working');
 
-  const valoresBatem = Math.abs(valorNota - somaItens) < 0.01;
-  const aprovada = consulta.ativa && valoresBatem;
+  try {
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
+    const consulta = await validarCNPJNaReceita(cnpjLimpo);
+    const valoresBatem = Math.abs(valorNota - somaItens) < 0.01;
+    const aprovada = consulta.ativa && valoresBatem;
+    const registro = {
+      numero,
+      cnpj,
+      razao: consulta.razao,
+      valor: valorNota,
+      status: aprovada ? 'Aprovada' : 'Divergente',
+      motivo: !consulta.ativa ? 'CNPJ Irregular' : (!valoresBatem ? 'Divergencia de Valores' : 'OK')
+    };
 
-  const registro = {
-    numero,
-    cnpj,
-    razao: consulta.razao,
-    valor: valorNota,
-    status: aprovada ? 'Aprovada' : 'Divergente',
-    motivo: !consulta.ativa ? 'CNPJ Irregular' : (!valoresBatem ? 'Divergência de Valores' : 'OK')
-  };
-
-  await salvarNotaNoBanco(registro);
-  definirFeedback(
-    `Nota #${numero} registrada (${registro.status}).`,
-    registro.status === 'Aprovada' ? 'success' : 'error'
-  );
-  atualizarTela();
-  botaoSimular.disabled = false;
-  xmlInput.disabled = false;
+    await salvarNotaNoBanco(registro);
+    definirFeedback(
+      `Nota #${numero} salva no Supabase (${registro.status}).`,
+      registro.status === 'Aprovada' ? 'success' : 'error'
+    );
+    atualizarTela();
+  } catch (error) {
+    definirFeedback(`Nao foi possivel salvar a nota: ${error.message}`, 'error');
+  } finally {
+    botaoSimular.disabled = false;
+    xmlInput.disabled = false;
+  }
 }
 
 function atualizarTela() {
@@ -146,7 +252,7 @@ function atualizarTela() {
       <td>${escapeHtml(formatarCNPJ(n.cnpj))}</td>
       <td>${escapeHtml(n.razao || 'Nao informado')}</td>
       <td>${Number(n.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-      <td><span class="pill ${n.status === 'Aprovada' ? 'pill-ok' : 'pill-err'}">${n.status} (${n.motivo})</span></td>
+      <td><span class="pill ${n.status === 'Aprovada' ? 'pill-ok' : 'pill-err'}">${escapeHtml(n.status)} (${escapeHtml(n.motivo)})</span></td>
     </tr>
   `).join('') : `
     <tr class="empty-state">
@@ -155,9 +261,12 @@ function atualizarTela() {
   `;
 
   const total = notas.reduce((acc, n) => acc + Number(n.valor), 0);
-  document.getElementById('kpi-total').textContent = total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-  document.getElementById('kpi-aprovadas').textContent = notas.filter(n => n.status === 'Aprovada').length;
-  document.getElementById('kpi-divergentes').textContent = notas.filter(n => n.status === 'Divergente').length;
+  document.getElementById('kpi-total').textContent =
+    total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  document.getElementById('kpi-aprovadas').textContent =
+    notas.filter(n => n.status === 'Aprovada').length;
+  document.getElementById('kpi-divergentes').textContent =
+    notas.filter(n => n.status === 'Divergente').length;
 }
 
 function escapeHtml(valor) {
@@ -173,36 +282,94 @@ function formatarCNPJ(valor) {
     : String(valor);
 }
 
-// Leitura de arquivo XML real de NF-e
-xmlInput.addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+async function processarArquivoXML(file) {
   fileName.textContent = file.name;
   try {
     const text = await file.text();
     const xml = new DOMParser().parseFromString(text, 'text/xml');
-    if (xml.querySelector('parsererror')) throw new Error('XML inválido');
+    if (xml.querySelector('parsererror')) throw new Error('XML invalido.');
 
     const numero = xml.querySelector('nNF')?.textContent || 'S/N';
     const cnpj = xml.querySelector('emit > CNPJ')?.textContent || '';
-    const valorNota = parseFloat(xml.querySelector('ICMSTot > vNF')?.textContent || '0');
-    const valorProdutos = parseFloat(xml.querySelector('ICMSTot > vProd')?.textContent || '0');
+    const valorNota = Number(xml.querySelector('ICMSTot > vNF')?.textContent || '0');
+    const somaItens = Number(xml.querySelector('ICMSTot > vProd')?.textContent || '0');
 
-    if (!cnpj) throw new Error('CNPJ do emitente não encontrado');
-    await processarNota({ numero, cnpj, valorNota, somaItens: valorProdutos });
-  } catch (erro) {
-    definirFeedback(erro.message || 'Não foi possível ler o arquivo XML.', 'error');
+    if (!cnpj) throw new Error('CNPJ do emitente nao encontrado.');
+    if (!Number.isFinite(valorNota) || !Number.isFinite(somaItens)) {
+      throw new Error('Os valores da nota fiscal sao invalidos.');
+    }
+    await processarNota({ numero, cnpj, valorNota, somaItens });
+  } catch (error) {
+    definirFeedback(error.message || 'Nao foi possivel ler o arquivo XML.', 'error');
+  }
+}
+
+authForm.addEventListener('submit', async evento => {
+  evento.preventDefault();
+  authSubmit.disabled = true;
+  definirFeedbackAuth(criandoConta ? 'Criando sua conta...' : 'Entrando...', 'working');
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+
+  try {
+    if (criandoConta) {
+      const resultado = await supabaseRequest('/auth/v1/signup', {
+        method: 'POST',
+        body: { email, password }
+      });
+      if (resultado.access_token) {
+        await iniciarSessao(resultado);
+      } else {
+        criandoConta = false;
+        atualizarModoAuth();
+        definirFeedbackAuth('Conta criada. Confirme o e-mail recebido e depois entre.', 'success');
+      }
+    } else {
+      const resultado = await supabaseRequest('/auth/v1/token?grant_type=password', {
+        method: 'POST',
+        body: { email, password }
+      });
+      await iniciarSessao(resultado);
+    }
+  } catch (error) {
+    definirFeedbackAuth(error.message, 'error');
+  } finally {
+    authSubmit.disabled = false;
   }
 });
 
-// Botão de simulação
+authToggle.addEventListener('click', () => {
+  criandoConta = !criandoConta;
+  atualizarModoAuth();
+  definirFeedbackAuth('');
+});
+
+btnLogout.addEventListener('click', async () => {
+  btnLogout.disabled = true;
+  try {
+    await requisicaoAutenticada('/auth/v1/logout', { method: 'POST' });
+  } catch (error) {
+    if (error.status !== 401) definirFeedback(`Falha ao encerrar sessao no servidor: ${error.message}`, 'error');
+  } finally {
+    limparSessao();
+    mostrarLogin();
+    definirFeedbackAuth('Sessao encerrada.', 'success');
+    atualizarTela();
+    btnLogout.disabled = false;
+  }
+});
+
+xmlInput.addEventListener('change', async evento => {
+  const file = evento.target.files[0];
+  if (file) await processarArquivoXML(file);
+});
+
 botaoSimular.addEventListener('click', () => {
   const exemplos = [
-    { numero: '1042', cnpj: '00.000.000/0001-91', valorNota: 1500.00, somaItens: 1500.00 },
-    { numero: '1043', cnpj: '33.000.167/0001-01', valorNota: 4200.00, somaItens: 3900.00 }
+    { numero: '1042', cnpj: '00.000.000/0001-91', valorNota: 1500, somaItens: 1500 },
+    { numero: '1043', cnpj: '33.000.167/0001-01', valorNota: 4200, somaItens: 3900 }
   ];
-  const sorteado = exemplos[notas.length % exemplos.length];
-  processarNota(sorteado);
+  processarNota(exemplos[notas.length % exemplos.length]);
 });
 
 document.getElementById('filtroStatus').addEventListener('change', atualizarTela);
@@ -213,13 +380,16 @@ document.getElementById('filtroStatus').addEventListener('change', atualizarTela
     dropzone.classList.add('is-dragging');
   });
 });
-['dragleave', 'drop'].forEach(nome => {
-  dropzone.addEventListener(nome, evento => {
-    evento.preventDefault();
-    dropzone.classList.remove('is-dragging');
-  });
+dropzone.addEventListener('dragleave', evento => {
+  evento.preventDefault();
+  dropzone.classList.remove('is-dragging');
+});
+dropzone.addEventListener('drop', async evento => {
+  evento.preventDefault();
+  dropzone.classList.remove('is-dragging');
+  const file = evento.dataTransfer?.files[0];
+  if (file) await processarArquivoXML(file);
 });
 
-// Inicializa carregando o histórico salvo
-carregarNotasDoBanco();
-
+atualizarModoAuth();
+restaurarSessao();

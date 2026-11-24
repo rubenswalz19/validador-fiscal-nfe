@@ -49,6 +49,38 @@ body {
 .badge-dot { width: 7px; height: 7px; border-radius: 50%; background: #58d68d; box-shadow: 0 0 0 4px rgba(88,214,141,.12); }
 
 .container { max-width: 1120px; margin: 38px auto 60px; padding: 0 24px; display: grid; gap: 24px; }
+.topbar-actions { display: flex; align-items: center; gap: 12px; }
+.btn-logout {
+  border: 1px solid rgba(255,255,255,.2); border-radius: 8px; padding: 8px 12px;
+  background: transparent; color: #e4ebff; font: 700 12px Inter, "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+.btn-logout:hover { background: rgba(255,255,255,.08); }
+.auth-box {
+  width: min(100%, 440px); margin: 28px auto; padding: 30px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; box-shadow: var(--shadow);
+}
+.auth-description { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.auth-box form { display: grid; gap: 9px; margin-top: 22px; }
+.auth-box label { color: #465268; font-size: 12px; font-weight: 700; }
+.auth-box input {
+  height: 42px; margin-bottom: 7px; padding: 0 12px;
+  border: 1px solid #dfe5ef; border-radius: 8px; outline: none;
+  color: var(--ink); font: 14px Inter, "Segoe UI", sans-serif;
+}
+.auth-box input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px #edf3ff; }
+.auth-box form .btn-primary { justify-content: center; margin-top: 5px; }
+.auth-toggle {
+  margin-top: 15px; padding: 4px 0; border: 0; background: transparent;
+  color: var(--accent); font: 700 12px Inter, "Segoe UI", sans-serif; cursor: pointer;
+}
+.auth-toggle:hover { text-decoration: underline; }
+.auth-feedback { min-height: 18px; margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.auth-feedback.is-error { color: var(--danger); }
+.auth-feedback.is-success { color: var(--success); }
+.auth-feedback.is-working { color: var(--accent); }
+[hidden] { display: none !important; }
 .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
 .card {
   min-height: 112px; background: var(--surface); padding: 22px;
@@ -133,8 +165,10 @@ tbody tr:hover td { background: #fbfcfe; }
   .topbar h1 { font-size: 17px; }
   .topbar h1 span { display: none; }
   .brand-mark { width: 38px; height: 38px; }
-  .badge { font-size: 0; padding: 10px; }
+  .badge { display: none; }
+  .btn-logout { padding: 8px 10px; }
   .container { margin-top: 20px; padding: 0 16px; gap: 16px; }
+  .auth-box { margin: 8px auto; padding: 22px; }
   .kpis { grid-template-columns: 1fr; gap: 10px; }
   .card { min-height: 86px; }
   .upload-box, .table-section { padding: 18px; }

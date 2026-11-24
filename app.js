@@ -98,8 +98,8 @@ function atualizarModoAuth() {
   authTitle.textContent = criandoConta ? 'Criar sua conta' : 'Entrar na sua conta';
   authSubmit.textContent = criandoConta ? 'Criar conta' : 'Entrar';
   authToggle.textContent = criandoConta
-    ? 'Ja tem conta? Entrar'
-    : 'Ainda nao tem conta? Criar conta';
+    ? 'Voltar para entrar'
+    : 'Criar conta';
   document.getElementById('authPassword').autocomplete = criandoConta ? 'new-password' : 'current-password';
 }
 
